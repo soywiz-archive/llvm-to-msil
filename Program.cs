@@ -43,8 +43,14 @@ namespace llvm_to_msil
 			var LLVMParser = new LLVMParser();
 			//var Tree = LLVMParser.Parse("%a = add i32 1, 2");
 			var Tree = LLVMParser.Parse(File.ReadAllText("test.ll"));
+			var AssemblyBuilder = Tree.GenerateType();
+			AssemblyBuilder.Save(@"DynamicAssemblyExample.dll");
+			var Method = AssemblyBuilder.GetModules()[1].GetTypes()[0].GetMethods()[0];
+			Method.Invoke(null, new object[] { 0, IntPtr.Zero });
+			//Console.WriteLine();
+
 			//var Tree = LLVMParser.Parse("target triple = \"i686-pc-mingw32\"\ntarget triple = \"i686-pc-mingw32\"\n");
-			Console.WriteLine("{0}", Tree.ToJson());
+			//Console.WriteLine("{0}", Tree.ToJson());
 			Console.ReadKey();
 		}
 	}

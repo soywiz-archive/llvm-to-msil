@@ -3,15 +3,129 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 
 namespace llvm_to_msil.Nodes
 {
-	public class AstNode
+	public class AstAnalyzeContext
+	{
+		public Dictionary<string, AstDeclareFunction> FunctionList = new Dictionary<string,AstDeclareFunction>();
+
+		internal void AddFunction(AstDeclareFunction AstDeclareFunction)
+		{
+			FunctionList.Add(AstDeclareFunction.Name, AstDeclareFunction);
+		}
+	}
+
+	public class AstGenerateContext
+	{
+		public readonly AssemblyName AssemblyName;
+		public readonly AssemblyBuilder AssemblyBuilder;
+		public readonly ModuleBuilder ModuleBuilder;
+		public readonly TypeBuilder TypeBuilder;
+		public ILGenerator ILGenerator { get; private set; }
+		private MethodBuilder MethodBuilder;
+		public Type Type;
+
+		public AstGenerateContext()
+		{
+			AssemblyName = new AssemblyName("DynamicAssemblyExample");
+			AssemblyBuilder = AppDomain.CurrentDomain.DefineDynamicAssembly(AssemblyName, AssemblyBuilderAccess.RunAndSave);
+			ModuleBuilder = AssemblyBuilder.DefineDynamicModule(AssemblyName.Name, AssemblyName.Name + ".dll");
+			TypeBuilder = ModuleBuilder.DefineType("MyDynamicType", TypeAttributes.Public);
+		}
+
+		public void Finalize()
+		{
+			Type = TypeBuilder.CreateType();
+		}
+
+		public void BeginFunction(string Name, Type ReturnType, Type[] ParameterTypes, string[] Names)
+		{
+			Locals = new Dictionary<string, LocalBuilder>();
+			Arguments = new Dictionary<string, int>();
+
+			Console.WriteLine("BeginFunction: {0} {1}({2})", Name, ReturnType, String.Join(",", ParameterTypes.Select(Type => Type.ToString())));
+			MethodBuilder = TypeBuilder.DefineMethod(Name, MethodAttributes.Final | MethodAttributes.Static | MethodAttributes.Public, CallingConventions.Standard, ReturnType, ParameterTypes);
+			ILGenerator = MethodBuilder.GetILGenerator();
+			for (int n = 0; n < Names.Length; n++)
+			{
+				Arguments[Names[n]] = n;
+			}
+		}
+
+		public void EndFunction()
+		{
+			//MethodBuilder.comple
+		}
+
+		Dictionary<string, LocalBuilder> Locals;
+		Dictionary<string, int> Arguments;
+
+		public LocalBuilder CreateLocal(string Name, Type Type)
+		{
+			return Locals[Name] = ILGenerator.DeclareLocal(Type);
+		}
+
+		public bool IsLocal(string Name)
+		{
+			return Locals.ContainsKey(Name);
+		}
+
+		public LocalBuilder GetLocal(string Name)
+		{
+			return Locals[Name];
+		}
+
+		public int GetArgument(string Name)
+		{
+			return Arguments[Name];
+		}
+
+		public MethodInfo GetFunction(string FunctionName)
+		{
+			switch (FunctionName)
+			{
+				case "@printf":
+					return typeof(Runtime).GetMethod("printf");
+			}
+			throw new NotImplementedException();
+		}
+	}
+
+	unsafe public class Runtime
+	{
+		static public int printf(sbyte* Format, params object[] Args)
+		{
+			return 0;
+		}
+	}
+
+	abstract public class AstNode
 	{
 		public AstNode()
+		{
+		}
+
+		public AssemblyBuilder GenerateType()
+		{
+			var AstAnalyzeContext = new AstAnalyzeContext();
+			this.Analyze(AstAnalyzeContext);
+			var AstGenerateContext = new AstGenerateContext();
+			this.Generate(AstGenerateContext);
+			AstGenerateContext.Finalize();
+			return AstGenerateContext.AssemblyBuilder;
+		}
+
+		virtual public void Analyze(AstAnalyzeContext Context)
+		{
+		}
+
+		virtual public void Generate(AstGenerateContext Context)
 		{
 		}
 
@@ -23,12 +137,18 @@ namespace llvm_to_msil.Nodes
 
 	public class AstNodeModifiers : AstNode
 	{
-		public string[] Modifiers;
+		public HashSet<string> Modifiers;
 
 		public AstNodeModifiers(string[] Modifiers)
 		{
-			this.Modifiers = Modifiers;
+			this.Modifiers = new HashSet<string>(Modifiers);
 		}
+
+		public bool Has(string Modifier)
+		{
+			return this.Modifiers.Contains(Modifier);
+		}
+
 	}
 
 	public class AstNodeTarget : AstNode
@@ -51,10 +171,21 @@ namespace llvm_to_msil.Nodes
 		{
 			this.Items = Items.ToArray();
 		}
+
+		public override void Analyze(AstAnalyzeContext Context)
+		{
+			foreach (var Item in Items) Item.Analyze(Context);
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			foreach (var Item in Items) Item.Generate(Context);
+		}
 	}
 
 	abstract public class AstNodeType : AstNode
 	{
+		abstract public Type ToNativeType();
 	}
 
 	public class AstNodeTypePointer : AstNodeType
@@ -65,10 +196,19 @@ namespace llvm_to_msil.Nodes
 		{
 			this.PointeeType = PointeeType;
 		}
+
+		public override Type ToNativeType()
+		{
+			return PointeeType.ToNativeType().MakePointerType();
+		}
 	}
 
 	public class AstNodeTypeEllipsis : AstNodeType
 	{
+		public override Type ToNativeType()
+		{
+			throw new NotImplementedException();
+		}
 	}
 
 	public class AstNodeTypeBase : AstNodeType
@@ -78,6 +218,18 @@ namespace llvm_to_msil.Nodes
 		public AstNodeTypeBase(string TypeName)
 		{
 			this.TypeName = TypeName;
+		}
+
+		public override Type ToNativeType()
+		{
+			switch (TypeName)
+			{
+				case "i8": return typeof(sbyte);
+				case "i16": return typeof(short);
+				case "i32": return typeof(int);
+				case "i64": return typeof(long);
+			}
+			throw new NotImplementedException();
 		}
 	}
 
@@ -91,28 +243,39 @@ namespace llvm_to_msil.Nodes
 			this.Count = Count;
 			this.ElementType = ElementType;
 		}
+
+		public override Type ToNativeType()
+		{
+			return ElementType.ToNativeType().MakeArrayType();
+		}
 	}
 
 	public class AstNodeTypeFunction : AstNodeType
 	{
-		public AstNodeType astNodeType;
-		public AstNode astNode;
+		public AstNodeType ReturnType;
+		public AstNode ParameterType;
 
 		public AstNodeTypeFunction(AstNodeType ReturnType, AstNode ParameterType)
 		{
-			this.astNodeType = ReturnType;
-			this.astNode = ParameterType;
+			this.ReturnType = ReturnType;
+			this.ParameterType = ParameterType;
+		}
+
+		public override Type ToNativeType()
+		{
+			return typeof(Delegate);
+			//throw new NotImplementedException();
 		}
 	}
 
-	public class AstNodeStatement : AstNode
+	abstract public class AstNodeStatement : AstNode
 	{
 		public AstNodeStatement()
 		{
 		}
 	}
 
-	public class AstNodeExpression : AstNode
+	abstract public class AstNodeExpression : AstNode
 	{
 		public AstNodeExpression()
 		{
@@ -122,23 +285,72 @@ namespace llvm_to_msil.Nodes
 
 	public class AstNodeExpressionLiteral : AstNodeExpression
 	{
+		//public AstNodeType AstNodeType;
 		public object Value;
 
-		public AstNodeExpressionLiteral(object Value = null)
+		public AstNodeExpressionLiteral(object Value)
 		{
 			this.Value = Value;
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			//base.Generate(Context);
+			throw(new NotImplementedException());
+		}
+	}
+
+	public class AstNodeExpressionLiteralInteger : AstNodeExpression
+	{
+		//public AstNodeType AstNodeType;
+		public int Value;
+
+		public AstNodeExpressionLiteralInteger(int Value)
+		{
+			this.Value = Value;
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			Context.ILGenerator.Emit(OpCodes.Ldc_I4, Value);
+			//base.Generate(Context);
+			//throw (new NotImplementedException());
 		}
 	}
 
 	public class AstNodeExpressionTypeLiteral : AstNodeExpression
 	{
 		public AstNodeType AstNodeType;
-		public object Value;
+		public string Name;
 
-		public AstNodeExpressionTypeLiteral(AstNodeType AstNodeType, object Value = null)
+		public AstNodeExpressionTypeLiteral(AstNodeType AstNodeType, string Name)
 		{
 			this.AstNodeType = AstNodeType;
-			this.Value = Value;
+			this.Name = Name;
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			//base.Generate(Context);
+			switch (Name[0])
+			{
+				case '%':
+					if (Context.IsLocal(Name))
+					{
+						Context.ILGenerator.Emit(OpCodes.Ldloc, Context.GetLocal(Name));
+					}
+					else
+					{
+						Context.ILGenerator.Emit(OpCodes.Ldarg, Context.GetArgument(Name));
+					}
+					break;
+				case '@':
+					throw (new NotImplementedException());
+					break;
+				default:
+					Context.ILGenerator.Emit(OpCodes.Ldc_I4, Convert.ToInt32(Name));
+					break;
+			}
 		}
 	}
 
@@ -154,28 +366,68 @@ namespace llvm_to_msil.Nodes
 		{
 			this.Name = Name;
 		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			switch (Name[0])
+			{
+				case '%':
+					if (Context.IsLocal(Name))
+					{
+						Context.ILGenerator.Emit(OpCodes.Ldloc, Context.GetLocal(Name));
+					}
+					else
+					{
+						Context.ILGenerator.Emit(OpCodes.Ldarg, Context.GetArgument(Name));
+					}
+					break;
+				//case '@': break;
+				default:
+					throw (new NotImplementedException());
+			}
+			//base.Generate(Context);
+		}
 	}
 
 
 	public class AstNodeExpressionBinaryOperation : AstNodeExpression
 	{
-		public AstNode Destination;
+		public string Destination;
 		public string Operation;
-		public AstNode Type;
+		public AstNodeType Type;
 		public AstNode Left;
 		public AstNode Right;
 
-		public AstNodeExpressionBinaryOperation()
-		{
-		}
-
-		public AstNodeExpressionBinaryOperation(AstNode Destination, string Operation, AstNode Type, AstNode Left, AstNode Right)
+		public AstNodeExpressionBinaryOperation(string Destination, string Operation, AstNodeType Type, AstNode Left, AstNode Right)
 		{
 			this.Destination = Destination;
 			this.Operation = Operation;
 			this.Type = Type;
 			this.Left = Left;
 			this.Right = Right;
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			var TypeNet = Type.ToNativeType();
+			var Local = Context.CreateLocal(Destination, TypeNet);
+			//var Local = Context.ILGenerator.DeclareLocal(Type.ToNetType());
+
+			//Console.WriteLine("BinOP: {0}", Operation);
+
+			Left.Generate(Context);
+			Right.Generate(Context);
+
+			switch (Operation)
+			{
+				case "add":
+					Context.ILGenerator.Emit(OpCodes.Add);
+					Context.ILGenerator.Emit(OpCodes.Stloc, Local);
+					break;
+				default:
+					throw(new NotImplementedException());
+			}
+			//base.Generate(Context);
 		}
 	}
 
@@ -199,13 +451,13 @@ namespace llvm_to_msil.Nodes
 
 	public class AstDefineFunction : AstNode
 	{
-		public AstNode ReturnType;
+		public AstNodeType ReturnType;
 		public string FunctionName;
-		public AstNode ParameterList;
+		public AstNodeContainer<AstNodeParameter> ParameterList;
 		public AstNode ExtraInfo;
 		public AstNode Statements;
 
-		public AstDefineFunction(AstNode ReturnType, string FunctionName, AstNode ParameterList, AstNode ExtraInfo, AstNode Statements)
+		public AstDefineFunction(AstNodeType ReturnType, string FunctionName, AstNodeContainer<AstNodeParameter> ParameterList, AstNode ExtraInfo, AstNode Statements)
 		{
 			this.ReturnType = ReturnType;
 			this.FunctionName = FunctionName;
@@ -213,19 +465,40 @@ namespace llvm_to_msil.Nodes
 			this.ExtraInfo = ExtraInfo;
 			this.Statements = Statements;
 		}
+
+		public override void Analyze(AstAnalyzeContext Context)
+		{
+			// Register function
+			//base.Analyze(Context);
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			Context.BeginFunction(
+				FunctionName,
+				ReturnType.ToNativeType(),
+				ParameterList.Items.Select(Parameter => Parameter.Type.ToNativeType()).ToArray(),
+				ParameterList.Items.Select(Parameter => Parameter.Name).ToArray()
+			);
+			{
+				Statements.Generate(Context);
+			}
+			Context.EndFunction();
+			//base.Generate(Context);
+		}
 	}
 
-	public class AstParameter : AstNode
+	public class AstNodeParameter : AstNode
 	{
-		public AstNode ParameterType;
-		public AstNode ParameterAttributes;
-		public string ParameterName;
+		public AstNodeType Type;
+		public AstNode Attributes;
+		public string Name;
 
-		public AstParameter(AstNode ParameterType, AstNode ParameterAttributes, string ParameterName)
+		public AstNodeParameter(AstNodeType ParameterType, AstNode ParameterAttributes, string ParameterName)
 		{
-			this.ParameterType = ParameterType;
-			this.ParameterAttributes = ParameterAttributes;
-			this.ParameterName = ParameterName;
+			this.Type = ParameterType;
+			this.Attributes = ParameterAttributes;
+			this.Name = ParameterName;
 		}
 	}
 
@@ -243,12 +516,12 @@ namespace llvm_to_msil.Nodes
 	{
 		public string DestinationName;
 		public AstNode Modifiers;
-		public AstNode CallType;
+		public AstNodeType CallType;
 		public string FunctionName;
 		public AstNode Parameters;
 		public AstNode Attributes;
 
-		public AstNodeFunctionCall(string DestinationName, AstNode Modifiers, AstNode CallType, string FunctionName, AstNode Parameters, AstNode Attributes)
+		public AstNodeFunctionCall(string DestinationName, AstNode Modifiers, AstNodeType CallType, string FunctionName, AstNode Parameters, AstNode Attributes)
 		{
 			this.DestinationName = DestinationName;
 			this.Modifiers = Modifiers;
@@ -256,6 +529,15 @@ namespace llvm_to_msil.Nodes
 			this.FunctionName = FunctionName;
 			this.Parameters = Parameters;
 			this.Attributes = Attributes;
+		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			var DestinationLocal = Context.CreateLocal(DestinationName, CallType.ToNativeType());
+			var Function = Context.GetFunction(FunctionName);
+			Parameters.Generate(Context);
+			Context.ILGenerator.Emit(OpCodes.Call, Function);
+			Context.ILGenerator.Emit(OpCodes.Stloc, DestinationLocal);
 		}
 	}
 
@@ -281,34 +563,44 @@ namespace llvm_to_msil.Nodes
 		{
 			this.ReturnValue = ReturnValue;
 		}
+
+		public override void Generate(AstGenerateContext Context)
+		{
+			ReturnValue.Generate(Context);
+			Context.ILGenerator.Emit(OpCodes.Ret);
+		}
 	}
 
 	public class AstDeclareFunction : AstNode
 	{
 		public AstNodeType ReturnType;
-		public string FunctionName;
-		public AstNode ParameterList;
-		public AstNode FunctionAttributeList;
+		public string Name;
+		public AstNode Parameters;
+		public AstNode Attributes;
 
-		public AstDeclareFunction(AstNodeType ReturnType, string FunctionName, AstNode ParameterList, AstNode FunctionAttributeList)
+		public AstDeclareFunction(AstNodeType ReturnType, string Name, AstNode Parameters, AstNode Attributes)
 		{
 			this.ReturnType = ReturnType;
-			this.FunctionName = FunctionName;
-			this.ParameterList = ParameterList;
-			this.FunctionAttributeList = FunctionAttributeList;
+			this.Name = Name;
+			this.Parameters = Parameters;
+			this.Attributes = Attributes;
+		}
+
+		public override void Analyze(AstAnalyzeContext Context)
+		{
+			Context.AddFunction(this);
 		}
 	}
 
 	public class AstNodeDeclareParameter : AstNode
 	{
-		public AstNodeType astNodeType;
-		public AstNodeModifiers astNodeModifiers;
+		public AstNodeType NodeType;
+		public AstNodeModifiers Modifiers;
 
 		public AstNodeDeclareParameter(AstNodeType astNodeType, AstNodeModifiers astNodeModifiers)
 		{
-			// TODO: Complete member initialization
-			this.astNodeType = astNodeType;
-			this.astNodeModifiers = astNodeModifiers;
+			this.NodeType = astNodeType;
+			this.Modifiers = astNodeModifiers;
 		}
 	}
 }

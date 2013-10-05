@@ -1,6 +1,7 @@
 ﻿using Irony.Parsing;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ namespace llvm_to_msil.Nodes
 {
 	public class LlvmAstBuilder
 	{
+		[DebuggerHidden]
 		public TAstNode Build<TAstNode>(ParseTreeNode ParseNode) where TAstNode : AstNode
 		{
 			return (TAstNode)Build(ParseNode);
@@ -30,7 +32,7 @@ namespace llvm_to_msil.Nodes
 				case "i16":
 				case "i32":
 					return new AstNodeTypeBase(TermName);
-				case "NUMBER": return new AstNodeExpressionLiteral(ParseNode.Token.Value);
+				case "NUMBER": return new AstNodeExpressionLiteralInteger(Convert.ToInt32(ParseNode.Token.Value));
 				case "IDENTIFIER": return new AstNodeExpressionIdentifier(ParseNode.Token.ValueString);
 				case "TARGET": return BuildAstTarget(ParseNode);
 				case "DEFINE_FUNCTION": return BuildAstDefineFunction(ParseNode);
@@ -41,9 +43,10 @@ namespace llvm_to_msil.Nodes
 				case "STATEMENT_LIST": return BuildAstContainer<AstNode>(ParseNode);
 				case "STATEMENT": return _ReturnSingleChild(ParseNode);
 				case "LABEL": return new AstNodeLabel(GetStringTermValue(ParseNode));
-				case "VALUE_TERM": return new AstNodeExpressionLiteral(GetStringTermValue(ParseNode));
+				//case "VALUE_TERM": return new AstNodeExpressionLiteral(GetStringTermValue(ParseNode));
+				case "VALUE_TERM": return _ReturnSingleChild(ParseNode);
 
-				case "DEFINE_PARAMETER_LIST": return BuildAstContainer<AstNode>(ParseNode);
+				case "DEFINE_PARAMETER_LIST": return BuildAstContainer<AstNodeParameter>(ParseNode);
 				case "DEFINE_PARAMETER": return BuildAstDefineParameter(ParseNode);
 
 				case "CALL": return BuildAstCall(ParseNode);
@@ -61,7 +64,7 @@ namespace llvm_to_msil.Nodes
 
 				case "RETURN": return new AstNodeReturn(Build(ParseNode.ChildNodes[1]));
 
-				case "DECLARE_PARAMETER_LIST": return BuildAstContainer<AstNode>(ParseNode);
+				case "DECLARE_PARAMETER_LIST": return BuildAstContainer<AstNodeDeclareParameter>(ParseNode);
 				case "DECLARE_PARAMETER": return new AstNodeDeclareParameter(Build<AstNodeType>(ParseNode.ChildNodes[0]), BuildAstNodeModifiers(ParseNode.ChildNodes[1]));
 
 				case "TYPE": return _ReturnSingleChild(ParseNode);
@@ -81,7 +84,7 @@ namespace llvm_to_msil.Nodes
 		{
 			var Children = new ChildReader(this, ParseNode);
 			var Type = Children.ReadAstNode<AstNodeType>();
-			var Value = Children.ReadAstNode();
+			var Value = Children.ReadTokenValueString();
 			return new AstNodeExpressionTypeLiteral(Type, Value);
 		}
 
@@ -102,20 +105,21 @@ namespace llvm_to_msil.Nodes
 			var DestinationName = Children.ReadString();
 			var Modifiers = Children.ReadAstNode();
 			Children.ReadExpectString("call");
-			var CallType = Children.ReadAstNode();
-			var FunctionName = Children.ReadString();
+			var CallType = Children.ReadAstNode<AstNodeType>();
+			var FunctionName = Children.ReadTokenValueString();
 			var Parameters = Children.ReadAstNode();
 			var Attributes = Children.ReadAstNode();
 			return new AstNodeFunctionCall(DestinationName, Modifiers, CallType, FunctionName, Parameters, Attributes);
 		}
 
-		private AstNode BuildAstDefineParameter(ParseTreeNode ParseNode)
+		private AstNodeParameter BuildAstDefineParameter(ParseTreeNode ParseNode)
 		{
 			var Children = new ChildReader(this, ParseNode);
-			var ParameterType = Children.ReadAstNode();
+			var ParameterType = Children.ReadAstNode<AstNodeType>();
 			var ParameterAttributes = Children.ReadAstNode();
-			var ParameterName = Children.ReadString();
-			return new AstParameter(ParameterType, ParameterAttributes, ParameterName);
+			//var ParameterName = Children.ReadString();
+			var ParameterName = Children.ReadTokenValueString();
+			return new AstNodeParameter(ParameterType, ParameterAttributes, ParameterName);
 		}
 
 		private AstNode _ReturnSingleChild(ParseTreeNode ParseNode)
@@ -129,7 +133,7 @@ namespace llvm_to_msil.Nodes
 			var Children = new ChildReader(this, ParseNode);
 			Children.ReadExpectString("declare");
 			var ReturnType = Children.ReadAstNode<AstNodeType>();
-			var FunctionName = Children.ReadString();
+			var FunctionName = Children.ReadTokenValueString();
 			var ParameterList = Children.ReadAstNode();
 			var FunctionAttributeList = Children.ReadAstNode();
 			return new AstDeclareFunction(ReturnType, FunctionName, ParameterList, FunctionAttributeList);
@@ -140,8 +144,8 @@ namespace llvm_to_msil.Nodes
 			var Children = new ChildReader(this, ParseNode);
 			Children.ReadExpectString("define");
 			var ReturnType = Children.ReadAstNode<AstNodeType>();
-			var FunctionName = Children.ReadString();
-			var ParameterList = Children.ReadAstNode();
+			var FunctionName = Children.ReadTokenValueString();
+			var ParameterList = Children.ReadAstNode<AstNodeContainer<AstNodeParameter>>();
 			var ExtraInfo = Children.ReadAstNode();
 			var Statements = Children.ReadAstNode();
 			return new AstDefineFunction(ReturnType, FunctionName, ParameterList, ExtraInfo, Statements);
@@ -149,7 +153,10 @@ namespace llvm_to_msil.Nodes
 
 		private AstNodeExpressionLiteral BuildAstLiteralString(ParseTreeNode ParseNode)
 		{
-			return new AstNodeExpressionLiteral(ParseNode.ChildNodes[1].Token.Value);
+			var Children = new ChildReader(this, ParseNode);
+			Children.ReadExpectString("c");
+			var ParseNode2 = Children.ReadParserNode();
+			return new AstNodeExpressionLiteral(ParseNode2.Token.Value);
 		}
 
 		private AstNodeType BuildAstTypeArray(ParseTreeNode ParseNode)
@@ -192,6 +199,16 @@ namespace llvm_to_msil.Nodes
 			return new AstNodeContainer<TAstNode>(ParseNode.ChildNodes.Select(Item => Build(Item)).Cast<TAstNode>());
 		}
 
+		private string GetTokenValueString(ParseTreeNode ParseNode)
+		{
+			while (ParseNode != null && ParseNode.ChildNodes != null && ParseNode.ChildNodes.Count == 1)
+			{
+				ParseNode = ParseNode.ChildNodes[0];
+			}
+
+			return ParseNode.Token.ValueString;
+		}
+
 		private string GetStringTermValue(ParseTreeNode ParseNode)
 		{
 			while (ParseNode != null && ParseNode.ChildNodes != null && ParseNode.ChildNodes.Count == 1)
@@ -211,9 +228,11 @@ namespace llvm_to_msil.Nodes
 		private AstNode BuildBinaryOp(ParseTreeNode ParseNode)
 		{
 			var Children = new ChildReader(this, ParseNode);
-			var Destination = Children.ReadAstNode();
+			//var Destination = Children.ReadAstNode();
+			var Destination = Children.ReadTokenValueString();
 			var Operation = Children.ReadString();
-			var Type = Children.ReadAstNode();
+			var Modifier = Children.ReadModifiers();
+			var Type = Children.ReadAstNode<AstNodeType>();
 			var Left = Children.ReadAstNode();
 			var Right = Children.ReadAstNode();
 			return new AstNodeExpressionBinaryOperation(Destination, Operation, Type, Left, Right);
@@ -241,14 +260,25 @@ namespace llvm_to_msil.Nodes
 				return LlvmAstBuilder.Build(ReadParserNode());
 			}
 
+			[DebuggerHidden]
 			public TAstNode ReadAstNode<TAstNode>() where TAstNode: AstNode
 			{
 				return LlvmAstBuilder.Build<TAstNode>(ReadParserNode());
 			}
 
+			public AstNodeModifiers ReadModifiers()
+			{
+				return LlvmAstBuilder.BuildAstNodeModifiers(ReadParserNode());
+			}
+
 			public String ReadString()
 			{
 				return LlvmAstBuilder.GetStringTermValue(ParseNode.ChildNodes[ChildIndex++]);
+			}
+
+			public String ReadTokenValueString()
+			{
+				return LlvmAstBuilder.GetTokenValueString(ParseNode.ChildNodes[ChildIndex++]);
 			}
 
 			public void ReadExpectString(string ExpectedString)
