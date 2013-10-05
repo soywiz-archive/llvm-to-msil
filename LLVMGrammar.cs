@@ -28,28 +28,33 @@ namespace llvm_to_msil
 			var BooleanTerm = ToTerm("true") | "false";
 			var NullTerm = ToTerm("null");
 
+			var TYPE = new NonTerminal("TYPE");
 			var TYPE_ELLIPSIS = ToTerm("...");
 			var TYPE_INTEGER = ToTerm("i1") | "i2" | "i4" | "i8" | "i16" | "i32" | "i64" | "i128";
 			var TYPE_FLOATING_POINT = ToTerm("half") | "float" | "double" | "x86_fp80" | "fp128" | "ppc_fp128";
-
-			NonTerminal TYPE = new NonTerminal("TYPE");
 			var TYPE_LIST = CreateZeroOrMoreList("TYPE_LIST", ToTerm(","), TYPE);
+			var TYPE_POINTER = (TYPE + ToTerm("*"));
+			var TYPE_VECTOR = (ToTerm("<") + NUMBER + ToTerm("x") + TYPE + ToTerm(">"));
+			var TYPE_ARRAY = (ToTerm("[") + NUMBER + ToTerm("x") + TYPE + ToTerm("]"));
+			var TYPE_STRUCT = (ToTerm("{") + TYPE_LIST + ToTerm("}"));
+			var TYPE_FUNCTION = (TYPE + ToTerm("(") + TYPE_LIST + ToTerm(")"));
 			TYPE.Rule =
 				  TYPE_INTEGER
 				| TYPE_FLOATING_POINT
 				| TYPE_ELLIPSIS
-				| (TYPE + ToTerm("*"))
-				| (ToTerm("<") + NUMBER + ToTerm("x") + TYPE + ToTerm(">"))
-				| (ToTerm("[") + NUMBER + ToTerm("x") + TYPE + ToTerm("]"))
-				| (ToTerm("{") + TYPE_LIST + ToTerm("}"))
-				| (TYPE + ToTerm("(") + TYPE_LIST + ToTerm(")"))
+				| TYPE_POINTER
+				| TYPE_VECTOR
+				| TYPE_ARRAY
+				| TYPE_STRUCT
+				| TYPE_FUNCTION
 			;
 
 			var ConstantTerm = BooleanTerm | NullTerm | NUMBER;
 
 			var ValueTerm = IDENTIFIER | ConstantTerm;
 
-			var LinkageType = ToTerm("private")
+			var LinkageType =
+				ToTerm("private")
 				| "linker_private"
 				| "linker_private_weak"
 				| "internal"
@@ -236,10 +241,29 @@ namespace llvm_to_msil
 				+ FunctionAttributes
 			;
 
+			var unnamed_addr = ToTerm("unnamed_addr");
+
+			var LITERAL = (
+				(ToTerm("c") + STRING)
+				| NUMBER
+			);
+
+			var DECLARE_GLOBAL =
+				IDENTIFIER
+				+ ToTerm("=")
+				+ LinkageType
+				+ unnamed_addr.Q()
+				+ ToTerm("constant")
+				+ TYPE
+				+ LITERAL
+				+ (ToTerm(",") + ToTerm("align") + NUMBER).Q()
+			;
+
 			var PROGRAM_DECLARATION =
 				TARGET
 				| DEFINE_FUNCTION
 				| DECLARE_FUNCTION
+				| DECLARE_GLOBAL
 			;
 
 			var PROGRAM_DECLARATION_LIST = CreateZeroOrMoreList("PROGRAM_DECLARATIONS", null, PROGRAM_DECLARATION);
@@ -250,12 +274,13 @@ namespace llvm_to_msil
 
 			Root = PROGRAM;
 
-			var CommentLine = new CommentTerminal("CommentLine", ";", "\r\n", "\r", "\n", "\u2085", "\u2028", "\u2029");
+			var COMMENT_LINE = new CommentTerminal("COMMENT_LINE", ";", "\r\n", "\r", "\n", "\u2085", "\u2028", "\u2029");
 
-			var COMMENT = new NonTerminal("COMMENT");
-			COMMENT.Rule = CommentLine;
+			var COMMENT = new NonTerminal("COMMENT",
+				COMMENT_LINE
+			);
 
-			NonGrammarTerminals.Add(CommentLine);
+			NonGrammarTerminals.Add(COMMENT_LINE);
 
 			MarkPunctuation("(", ")", ",");
 			MarkTransient(COMMENT);
