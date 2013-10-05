@@ -29,15 +29,16 @@ namespace llvm_to_msil
 			var NullTerm = ToTerm("null");
 
 			var TYPE = new NonTerminal("TYPE");
-			var TYPE_ELLIPSIS = ToTerm("...");
-			var TYPE_INTEGER = ToTerm("i1") | "i2" | "i4" | "i8" | "i16" | "i32" | "i64" | "i128";
-			var TYPE_FLOATING_POINT = ToTerm("half") | "float" | "double" | "x86_fp80" | "fp128" | "ppc_fp128";
 			var TYPE_LIST = CreateZeroOrMoreList("TYPE_LIST", ToTerm(","), TYPE);
-			var TYPE_POINTER = (TYPE + ToTerm("*"));
-			var TYPE_VECTOR = (ToTerm("<") + NUMBER + ToTerm("x") + TYPE + ToTerm(">"));
-			var TYPE_ARRAY = (ToTerm("[") + NUMBER + ToTerm("x") + TYPE + ToTerm("]"));
-			var TYPE_STRUCT = (ToTerm("{") + TYPE_LIST + ToTerm("}"));
-			var TYPE_FUNCTION = (TYPE + ToTerm("(") + TYPE_LIST + ToTerm(")"));
+
+			var TYPE_ELLIPSIS = new NonTerminal("TYPE_ELLIPSIS", ToTerm("..."));
+			var TYPE_INTEGER = new NonTerminal("TYPE_INTEGER", ToTerm("i1") | "i2" | "i4" | "i8" | "i16" | "i32" | "i64" | "i128");
+			var TYPE_FLOATING_POINT = new NonTerminal("TYPE_FLOATING_POINT", ToTerm("half") | "float" | "double" | "x86_fp80" | "fp128" | "ppc_fp128");
+			var TYPE_POINTER = new NonTerminal("TYPE_POINTER", (TYPE + ToTerm("*")));
+			var TYPE_VECTOR = new NonTerminal("TYPE_VECTOR", (ToTerm("<") + NUMBER + ToTerm("x") + TYPE + ToTerm(">")));
+			var TYPE_ARRAY = new NonTerminal("TYPE_ARRAY", (ToTerm("[") + NUMBER + ToTerm("x") + TYPE + ToTerm("]")));
+			var TYPE_STRUCT = new NonTerminal("TYPE_STRUCT", (ToTerm("{") + TYPE_LIST + ToTerm("}")));
+			var TYPE_FUNCTION = new NonTerminal("TYPE_FUNCTION", (TYPE + ToTerm("(") + TYPE_LIST + ToTerm(")")));
 			TYPE.Rule =
 				  TYPE_INTEGER
 				| TYPE_FLOATING_POINT
@@ -51,75 +52,29 @@ namespace llvm_to_msil
 
 			var ConstantTerm = BooleanTerm | NullTerm | NUMBER;
 
-			var ValueTerm = IDENTIFIER | ConstantTerm;
+			var VALUE_TERM = new NonTerminal("VALUE_TERM",
+				IDENTIFIER | ConstantTerm
+			);
 
 			var LinkageType =
-				ToTerm("private")
-				| "linker_private"
-				| "linker_private_weak"
-				| "internal"
-				| "available_externally"
-				| "linkonce"
-				| "weak"
-				| "common"
-				| "appending"
-				| "extern_weak"
-				| "linkonce_odr" | "weak_odr"
-				| "linkonce_odr_auto_hide"
-				| "external"
-				| "dllimport"
-				| "dllexport"
+				ToTerm("private") | "linker_private" | "linker_private_weak" | "internal" | "available_externally" | "linkonce" | "weak"
+				| "common" | "appending" | "extern_weak" | "linkonce_odr" | "weak_odr" | "linkonce_odr_auto_hide" | "external" | "dllimport" | "dllexport"
 			;
-			var VisibilityStyles = ToTerm("default")
-				| "hidden"
-				| "protected"
-			;
-			var CallingConvetion = ToTerm("ccc")
-				| "fastcc"
-				| "coldcc"
-				| "cc10"
-				| "cc11"
-				| "ccn"
-			;
-			var FunctionAttributes = ToTerm("alignstack")
-				| "alwaysinline"
-				| "buildin"
-				| "cold"
-				| "inlinehint"
-				| "minsize"
-				| "naked"
-				| "nobuiltin"
-				| "noduplicate"
-				| "noimplicitfloat"
-				| "noinline"
-				| "nonlazybind"
-				| "noredzone"
-				| "noreturn"
-				| "nounwind"
-				| "optnone"
-				| "optsize"
-				| "readnone"
-				| "readonly"
-				| "returns_twice"
-				| "sanitize_address"
-				| "sanitize_memory"
-				| "sanitize_thread"
-				| "ssp"
-				| "sspreq"
-				| "sspstrong"
-				| "uwtable"
-			;
-
-			var PARAMETER_ATTRIBUTE = new NonTerminal("PARAMETER_ATTRIBUTE", ToTerm("zeroext")
-				| "signext"
-				| "inreg"
-				| "byval"
-				| "sret"
-				| "noalias"
-				| "nocapture"
-				| "nest"
-				| "returned"
+			var VisibilityStyles = ToTerm("default") | "hidden" | "protected";
+			var CallingConvetion = ToTerm("ccc") | "fastcc" | "coldcc" | "cc10" | "cc11" | "ccn";
+			var FUNCTION_ATTRIBUTE_LIST = new NonTerminal("FUNCTION_ATTRIBUTE_LIST",
+				ToTerm("alignstack") | "alwaysinline" | "buildin" | "cold" | "inlinehint" | "minsize" | "naked" | "nobuiltin" | "noduplicate"
+				| "noimplicitfloat" | "noinline" | "nonlazybind" | "noredzone" | "noreturn" | "nounwind" | "optnone" | "optsize" | "readnone"
+				| "readonly" | "returns_twice" | "sanitize_address" | "sanitize_memory" | "sanitize_thread" | "ssp" | "sspreq" | "sspstrong" | "uwtable"
 			);
+
+
+
+
+			var PARAMETER_ATTRIBUTE = new NonTerminal("PARAMETER_ATTRIBUTE", ToTerm("zeroext") | "signext" | "inreg" | "byval" | "sret" | "noalias" | "nocapture" | "nest" | "returned");
+			var BinaryOpModifier = ToTerm("nuw") | "nsw" | "nnan" | "ninf" | "nsz" | "arcp" | "fast";
+			var ZST_TO_TYPE = ToTerm("trunc") | "zext" | "sext" | "fptrunc" | "fpext" | "fptoui" | "fptosi" | "uitofp" | "sitofp" | "ptrtoint" | "inttoptr" | "bitcast";
+
 			var PARAMETER_ATTRIBUTE_LIST = CreateZeroOrMoreList("PARAMETER_ATTRIBUTE_LIST", PARAMETER_ATTRIBUTE);
 
 			var DEFINE_PARAMETER = new NonTerminal("DEFINE_PARAMETER", 
@@ -141,43 +96,32 @@ namespace llvm_to_msil
 			var IntegerBinaryTermBitwise = ToTerm("shl") | "lshr" | "ashr" | "and" | "or" | "xor";
 			var FloatBinaryTerm = ToTerm("fadd") | "fsub" | "fmul" | "fdiv" | "frem";
 
-			var BinaryTerm = IntegerBinaryTerm | IntegerBinaryTermBitwise | FloatBinaryTerm;
+			var BINARY_TERM = new NonTerminal("BINARY_TERM",
+				IntegerBinaryTerm | IntegerBinaryTermBitwise | FloatBinaryTerm
+			);
 
 			var TARGET = new NonTerminal("TARGET", 
 				ToTerm("target") + (ToTerm("datalayout") | ToTerm("triple")) + "=" + STRING
 			);
 
-			var BinaryOpModifier = ToTerm("nuw")
-				| "nsw"
-			;
-			var BinaryOpModifierList = CreateZeroOrMoreList("BinaryOpModifierList", BinaryOpModifier);
+			var STATEMENT_BINARY_OP_MODIFIER_LIST = CreateZeroOrMoreList("STATEMENT_BINARY_OP_MODIFIER_LIST", BinaryOpModifier);
 
-			var BINARY_OP = new NonTerminal("BINARY_OP",
-				IDENTIFIER + "=" + BinaryTerm + BinaryOpModifierList + TYPE + ValueTerm + "," + ValueTerm
+			var STATEMENT_BINARY_OP = new NonTerminal("BINARY_OP",
+				IDENTIFIER + "=" + BINARY_TERM + STATEMENT_BINARY_OP_MODIFIER_LIST + TYPE + VALUE_TERM + "," + VALUE_TERM
 			);
 
-			var CONSTANT_EXPRESSION = new NonTerminal("CALL_PARAMETER");
+			var CONSTANT_EXPRESSION = new NonTerminal("CONSTANT_EXPRESSION");
 			var CONSTANT_EXPRESSION_LIST = CreateZeroOrMoreList("CONSTANT_EXPRESSION_LIST", ToTerm(","), CONSTANT_EXPRESSION);
-
-			var ZST_TO_TYPE = ToTerm("trunc")
-				| "zext"
-				| "sext"
-				| "fptrunc"
-				| "fpext"
-				| "fptoui"
-				| "fptosi"
-				| "uitofp"
-				| "sitofp"
-				| "ptrtoint"
-				| "inttoptr"
-				| "bitcast"
-			;
+			var CONSTANT_EXPRESSION_IDENTIFIER = new NonTerminal("CONSTANT_EXPRESSION_IDENTIFIER", (TYPE + IDENTIFIER));
+			var CONSTANT_EXPRESSION_NUMBER = new NonTerminal("CONSTANT_EXPRESSION_IDENTIFIER", (TYPE + NUMBER));
+			var CONSTANT_EXPRESSION_CST_TO = new NonTerminal("CONSTANT_EXPRESSION_CST_TO", (TYPE + ZST_TO_TYPE + CONSTANT_EXPRESSION + ToTerm("to") + TYPE));
+			var CONSTANT_EXPRESSION_GETELEMENTPTR = new NonTerminal("CONSTANT_EXPRESSION_GETELEMENTPTR", (TYPE + ToTerm("getelementptr") + ToTerm("inbounds") + ToTerm("(") + CONSTANT_EXPRESSION + "," + CONSTANT_EXPRESSION_LIST + ToTerm(")")));
 
 			CONSTANT_EXPRESSION.Rule =
-				(TYPE + IDENTIFIER)
-				| (TYPE + NUMBER)
-				| (TYPE + ZST_TO_TYPE + CONSTANT_EXPRESSION + ToTerm("to") + TYPE)
-				| (TYPE + ToTerm("getelementptr") + ToTerm("inbounds") + ToTerm("(") + CONSTANT_EXPRESSION_LIST + ToTerm(")"))
+				CONSTANT_EXPRESSION_IDENTIFIER
+				| CONSTANT_EXPRESSION_NUMBER
+				| CONSTANT_EXPRESSION_CST_TO
+				| CONSTANT_EXPRESSION_GETELEMENTPTR
 			;
 
 			var EXPRESSION = CONSTANT_EXPRESSION;
@@ -186,87 +130,104 @@ namespace llvm_to_msil
 				EXPRESSION
 			;
 
-			var CALL_PARAMETER_WITH_TYPE_LIST = CreateZeroOrMoreList("CALL_PARAMETER_LIST", ToTerm(","), CALL_PARAMETER_WITH_TYPE);
+			var CALL_PARAMETER_WITH_TYPE_LIST = CreateZeroOrMoreList("CALL_PARAMETER_WITH_TYPE_LIST", ToTerm(","), CALL_PARAMETER_WITH_TYPE);
 
-			var FUNCTION_CALL = new NonTerminal("CALL",
-				IDENTIFIER + ToTerm("=") + ToTerm("tail").Q() + ToTerm("call")
+			var CALL_MODIFIER = new NonTerminal("CALL_MODIFIERS",
+				ToTerm("tail")
+			);
+
+			var CALL_MODIFIER_LIST = CreateZeroOrMoreList("CALL_MODIFIER_LIST", CALL_MODIFIER);
+
+			var STATEMENT_FUNCTION_CALL = new NonTerminal("CALL",
+				IDENTIFIER + ToTerm("=") + CALL_MODIFIER_LIST + ToTerm("call")
 				+ TYPE
 				+ IDENTIFIER
 				+ "("
 				+ CALL_PARAMETER_WITH_TYPE_LIST
 				+ ")"
-				+ FunctionAttributes
+				+ FUNCTION_ATTRIBUTE_LIST
 			);
 
-			var LABEL = new NonTerminal("LABEL",
+			var STATEMENT_LABEL = new NonTerminal("LABEL",
 				LABELNAME_TERMINAL + ":"
 			);
 
-			var RETURN = new NonTerminal("RETURN",
+			var STATEMENT_RETURN = new NonTerminal("RETURN",
 				(ToTerm("ret") + EXPRESSION)
 				| (ToTerm("ret") + ToTerm("void"))
 			);
 
 			var STATEMENT = new NonTerminal("STATEMENT",
-				BINARY_OP
-				| FUNCTION_CALL
-				| RETURN
-				| LABEL
+				STATEMENT_BINARY_OP
+				| STATEMENT_FUNCTION_CALL
+				| STATEMENT_RETURN
+				| STATEMENT_LABEL
 			);
 
 			//this.LanguageFlags = LanguageFlags.NewLineBeforeEOF | LanguageFlags.CreateAst;
 
-			var STATEMENT_LIST = CreateZeroOrMoreList("STATEMENTS", null, STATEMENT);
+			var STATEMENT_LIST = CreateZeroOrMoreList("STATEMENT_LIST", null, STATEMENT);
 
-			var DEFINE_FUNCTION =
+			var DEFINE_FUNCTION = new NonTerminal("DEFINE_FUNCTION",
 				ToTerm("define")
 				+ TYPE
 				+ IDENTIFIER
 				+ ToTerm("(")
 				+ DEFINE_PARAMETER_LIST
 				+ ToTerm(")")
-				+ FunctionAttributes
+				+ FUNCTION_ATTRIBUTE_LIST
 				+ ToTerm("{")
 				+ STATEMENT_LIST
 				+ ToTerm("}")
-			;
+			);
 
-			var DECLARE_FUNCTION =
+			var DECLARE_FUNCTION = new NonTerminal("DECLARE_FUNCTION",
 				ToTerm("declare")
 				+ TYPE
 				+ IDENTIFIER
 				+ ToTerm("(")
 				+ DECLARE_PARAMETER_LIST
 				+ ToTerm(")")
-				+ FunctionAttributes
-			;
+				+ FUNCTION_ATTRIBUTE_LIST
+			);
 
 			var unnamed_addr = ToTerm("unnamed_addr");
 
-			var LITERAL = (
+			var LITERAL_STRING = new NonTerminal("LITERAL_STRING",
 				(ToTerm("c") + STRING)
-				| NUMBER
 			);
 
-			var DECLARE_GLOBAL =
+			var LITERAL_NUMBER = new NonTerminal("LITERAL_NUMBER",
+				NUMBER
+			);
+
+			var LITERAL = new NonTerminal("LITERAL",
+				LITERAL_STRING
+				| LITERAL_NUMBER
+			);
+
+			var DECLARE_GLOBAL_MODIFIERS = new NonTerminal("DECLARE_GLOBAL_MODIFIERS",
+				LinkageType + unnamed_addr.Q()
+			);
+
+			var DECLARE_GLOBAL = new NonTerminal("DECLARE_GLOBAL",
 				IDENTIFIER
 				+ ToTerm("=")
-				+ LinkageType
-				+ unnamed_addr.Q()
+				+ DECLARE_GLOBAL_MODIFIERS
 				+ ToTerm("constant")
 				+ TYPE
 				+ LITERAL
 				+ (ToTerm(",") + ToTerm("align") + NUMBER).Q()
-			;
+			);
 
-			var PROGRAM_DECLARATION =
+			var PROGRAM_DECLARATION = new NonTerminal("PROGRAM_DECLARATION",
 				TARGET
 				| DEFINE_FUNCTION
 				| DECLARE_FUNCTION
 				| DECLARE_GLOBAL
-			;
+			);
 
-			var PROGRAM_DECLARATION_LIST = CreateZeroOrMoreList("PROGRAM_DECLARATIONS", null, PROGRAM_DECLARATION);
+			var PROGRAM_DECLARATION_LIST = CreateZeroOrMoreList("PROGRAM_DECLARATION_LIST", PROGRAM_DECLARATION);
 
 			//PROGRAM.Rule = MakePlusRule(STATEMENT, NewLine);
 			//PROGRAM.Rule = STATEMENTS;
@@ -282,7 +243,7 @@ namespace llvm_to_msil
 
 			NonGrammarTerminals.Add(COMMENT_LINE);
 
-			MarkPunctuation("(", ")", ",");
+			MarkPunctuation("(", ")", ",", "=", "{", "}", "[", "]", "<", ">");
 			MarkTransient(COMMENT);
 		}
 
